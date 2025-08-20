@@ -3,17 +3,53 @@ import { StyleSheet, ScrollView, View, Text, TouchableOpacity } from 'react-nati
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/useTheme';
-import { useHabits } from '../../hooks/useHabits';
+import { useHabitStore } from '../../hooks/useHabitStore';
 import { useStats } from '../../hooks/useStats';
 import { ProgressChart } from '../../components/ProgressChart';
-import { CategoryType } from '../../types';
+import { CategoryType, Habit, HabitPage } from '../../types';
 import { getCategoryColor, getCategoryIcon } from '../../utils/templates';
 import { typography, spacing, borderRadius, shadows } from '../../utils/theme';
+
+// Convert HabitPage to legacy Habit format for stats
+const convertToLegacyHabit = (habitPage: HabitPage, completionDates: string[]): Habit => {
+  return {
+    id: habitPage.id,
+    name: habitPage.title,
+    category: habitPage.category === 'custom' ? 'personal' : habitPage.category,
+    streak: 0, // Will be calculated by stats
+    completedDates: completionDates,
+    target: habitPage.todos.length,
+    progress: completionDates.length > 0 ? Math.round((completionDates.length / habitPage.todos.length) * 100) : 0,
+    icon: getCategoryIcon(habitPage.category === 'custom' ? 'personal' : habitPage.category),
+    color: getCategoryColor(habitPage.category === 'custom' ? 'personal' : habitPage.category),
+    createdAt: habitPage.createdAt,
+    todos: habitPage.todos,
+  };
+};
 
 export default function ChartsScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const { habits } = useHabits();
+  const { habits: habitPages, completionState } = useHabitStore();
+  
+  // Convert HabitPage to legacy Habit format for stats
+  const habits: Habit[] = habitPages.map(habitPage => {
+    // Get all completion dates for this habit
+    const habitCompletions = completionState[habitPage.id] || {};
+    const completionDates: string[] = [];
+    
+    Object.keys(habitCompletions).forEach(date => {
+      const todoCompletions = habitCompletions[date];
+      const completedTodos = Object.values(todoCompletions).filter(Boolean).length;
+      // If at least one todo is completed for the day, consider the habit partially done
+      if (completedTodos > 0) {
+        completionDates.push(date);
+      }
+    });
+    
+    return convertToLegacyHabit(habitPage, completionDates);
+  });
+  
   const { 
     selectedCategory, 
     setSelectedCategory, 
@@ -272,6 +308,7 @@ export default function ChartsScreen() {
         <ProgressChart
           data={chartData}
           title={`${selectedCategory === 'all' ? 'Overall' : selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} Progress`}
+          timeRange={timeRange}
         />
 
         {/* Category Progress */}

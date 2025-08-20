@@ -1,52 +1,67 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
-import { LineChart } from 'react-native-chart-kit';
+import { 
+  VictoryChart, 
+  VictoryLine, 
+  VictoryAxis, 
+  VictoryLabel,
+  VictoryContainer,
+  VictoryTooltip
+} from 'victory';
 import { useTheme } from '../hooks/useTheme';
-import { ChartData } from '../types';
 import { typography, spacing, borderRadius, shadows } from '../utils/theme';
+import { format } from 'date-fns';
+
+interface ChartDataPoint {
+  x: Date;
+  y: number;
+}
 
 interface ProgressChartProps {
-  data: ChartData;
+  data: ChartDataPoint[];
   title: string;
+  timeRange: 'week' | 'month' | 'year';
   height?: number;
 }
 
 const screenWidth = Dimensions.get('window').width;
 
+// Helper function to compute percentage safely
+const computePercent = (completed: number, total: number): number => {
+  return total === 0 ? 0 : Math.round((completed / total) * 100);
+};
+
+// Helper function to get tick values for x-axis to prevent overlap
+const getTickValues = (data: ChartDataPoint[], timeRange: 'week' | 'month' | 'year'): Date[] => {
+  if (data.length === 0) return [];
+  
+  const maxTicks = timeRange === 'week' ? 7 : timeRange === 'month' ? 5 : 12;
+  const step = Math.max(1, Math.floor(data.length / maxTicks));
+  
+  return data.filter((_, index) => index % step === 0).map(d => d.x);
+};
+
+// Helper function to format x-axis labels based on time range
+const formatXAxisLabel = (date: Date, timeRange: 'week' | 'month' | 'year'): string => {
+  switch (timeRange) {
+    case 'week':
+      return format(date, 'EEE d'); // Mon 3
+    case 'month':
+      return format(date, 'd MMM'); // 3 Jan
+    case 'year':
+      return format(date, 'MMM'); // Jan
+    default:
+      return format(date, 'MMM d');
+  }
+};
+
 export const ProgressChart: React.FC<ProgressChartProps> = ({ 
   data, 
   title, 
+  timeRange,
   height = 220 
 }) => {
-  const { theme, isDark } = useTheme();
-
-  const chartConfig = {
-    backgroundColor: theme.surface,
-    backgroundGradientFrom: theme.surface,
-    backgroundGradientTo: theme.surface,
-    decimalPlaces: 0,
-    color: (opacity = 1) => theme.primary + Math.round(opacity * 255).toString(16).padStart(2, '0'),
-    labelColor: (opacity = 1) => theme.text + Math.round(opacity * 255).toString(16).padStart(2, '0'),
-    style: {
-      borderRadius: borderRadius.md,
-    },
-    propsForDots: {
-      r: '4',
-      strokeWidth: '2',
-      stroke: theme.primary,
-      fill: theme.primary,
-    },
-    propsForBackgroundLines: {
-      stroke: theme.border,
-      strokeWidth: 1,
-      strokeDasharray: '',
-    },
-    propsForLabels: {
-      fontSize: 12,
-    },
-    fillShadowGradient: theme.primary,
-    fillShadowGradientOpacity: 0.3,
-  };
+  const { theme } = useTheme();
 
   const styles = StyleSheet.create({
     container: {
@@ -65,55 +80,123 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({
     chartContainer: {
       alignItems: 'center',
       justifyContent: 'center',
+      height: height,
     },
-    noDataText: {
+    emptyStateContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: height,
+    },
+    emptyStateText: {
       ...typography.body,
       color: theme.textSecondary,
       textAlign: 'center',
-      padding: spacing.xl,
+      marginTop: spacing.md,
+    },
+    emptyStateSubText: {
+      ...typography.caption,
+      color: theme.textSecondary,
+      textAlign: 'center',
+      marginTop: spacing.sm,
     },
   });
 
-  // Check if we have valid data
-  const hasData = data.datasets.length > 0 && data.datasets[0].data.length > 0;
+  // Check if we have valid data or all values are 0
+  const hasData = data.length > 0;
+  const hasProgress = hasData && data.some(d => d.y > 0);
 
-  if (!hasData) {
+  if (!hasData || !hasProgress) {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>{title}</Text>
-        <Text style={styles.noDataText}>
-          No data available yet. Start tracking your habits to see progress!
-        </Text>
+        <View style={styles.emptyStateContainer}>
+          <Text style={styles.emptyStateText}>
+            No progress yet
+          </Text>
+          <Text style={styles.emptyStateSubText}>
+            Start tracking today to see your progress chart!
+          </Text>
+        </View>
       </View>
     );
   }
+
+  // Get tick values to prevent label overlap
+  const tickValues = getTickValues(data, timeRange);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{title}</Text>
       <View style={styles.chartContainer}>
-        <LineChart
-          data={data}
+        <VictoryChart
           width={screenWidth - spacing.md * 4}
           height={height}
-          chartConfig={chartConfig}
-          bezier
-          style={{
-            borderRadius: borderRadius.md,
-          }}
-          withHorizontalLabels={true}
-          withVerticalLabels={true}
-          withDots={true}
-          withShadow={false}
-          withScrollableDot={false}
-          withInnerLines={true}
-          withOuterLines={true}
-          yAxisLabel=""
-          yAxisSuffix="%"
-          yAxisInterval={1}
-          formatYLabel={(value) => `${Math.round(Number(value))}%`}
-          segments={4}
-        />
+          scale={{ x: 'time', y: 'linear' }}
+          domain={{ y: [0, 100] }}
+          domainPadding={{ y: 6 }}
+        >
+          {/* Y-axis with fixed 0-100% range */}
+          <VictoryAxis
+            dependentAxis
+            tickValues={[0, 25, 50, 75, 100]}
+            tickFormat={(t) => `${t}%`}
+            style={{
+              axis: { stroke: theme.border, strokeWidth: 1 },
+              tickLabels: { 
+                fill: theme.textSecondary, 
+                fontSize: 12,
+                fontFamily: 'System'
+              },
+              grid: { 
+                stroke: theme.border, 
+                strokeWidth: 0.5,
+                strokeDasharray: '3,3'
+              }
+            }}
+          />
+          
+          {/* X-axis with sparse labels to prevent overlap */}
+          <VictoryAxis
+            tickValues={tickValues}
+            tickFormat={(date: any) => formatXAxisLabel(date, timeRange)}
+            tickLabelComponent={
+              <VictoryLabel 
+                angle={timeRange === 'week' ? 0 : -35}
+                textAnchor={timeRange === 'week' ? 'middle' : 'end'}
+                style={{ 
+                  fill: theme.textSecondary, 
+                  fontSize: 12,
+                  fontFamily: 'System'
+                }}
+              />
+            }
+            style={{
+              axis: { stroke: theme.border, strokeWidth: 1 },
+              tickLabels: { 
+                fill: theme.textSecondary, 
+                fontSize: 12,
+                fontFamily: 'System'
+              }
+            }}
+          />
+          
+          {/* Line with data */}
+          <VictoryLine
+            data={data}
+            interpolation="monotoneX"
+            style={{
+              data: { 
+                stroke: theme.primary, 
+                strokeWidth: 3,
+                strokeLinecap: 'round'
+              }
+            }}
+            animate={{
+              duration: 1000,
+              onLoad: { duration: 500 }
+            }}
+          />
+        </VictoryChart>
       </View>
     </View>
   );

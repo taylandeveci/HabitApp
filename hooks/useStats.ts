@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Habit, ChartData, CategoryType } from '../types';
+import { Habit, CategoryType } from '../types';
+import { generateChartData, ChartDataPoint } from '../utils/dataAggregation';
 
 export const useStats = (habits: Habit[]) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'all'>('all');
@@ -12,71 +13,8 @@ export const useStats = (habits: Habit[]) => {
   }, [habits, selectedCategory]);
 
   // Generate chart data for the selected time range
-  const chartData = useMemo((): ChartData => {
-    const now = new Date();
-    const labels: string[] = [];
-    const data: number[] = [];
-    
-    let days: number;
-    let format: Intl.DateTimeFormatOptions;
-    
-    switch (timeRange) {
-      case 'week':
-        days = 7;
-        format = { weekday: 'short' };
-        break;
-      case 'month':
-        days = 30;
-        format = { month: 'short', day: 'numeric' };
-        break;
-      case 'year':
-        days = 365;
-        format = { month: 'short' };
-        break;
-    }
-
-    // Generate labels and calculate completion rates
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      const dateString = date.toISOString().split('T')[0];
-      
-      if (timeRange === 'year') {
-        // For year view, show monthly data
-        if (date.getDate() === 1 || i === days - 1) {
-          labels.push(date.toLocaleDateString('en-US', format));
-          
-          // Calculate monthly completion rate
-          const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-          const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-          const monthlyRate = calculateCompletionRate(monthStart, monthEnd);
-          data.push(monthlyRate);
-        }
-      } else {
-        labels.push(date.toLocaleDateString('en-US', format));
-        
-        // Calculate daily completion rate
-        const completedCount = filteredHabits.filter(habit =>
-          habit.completedDates.includes(dateString)
-        ).length;
-        
-        const rate = filteredHabits.length > 0 
-          ? (completedCount / filteredHabits.length) * 100 
-          : 0;
-        data.push(Math.round(rate));
-      }
-    }
-
-    return {
-      labels,
-      datasets: [
-        {
-          data,
-          color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
-          strokeWidth: 2,
-        },
-      ],
-    };
+  const chartData = useMemo((): ChartDataPoint[] => {
+    return generateChartData(filteredHabits, timeRange);
   }, [filteredHabits, timeRange]);
 
   // Calculate completion rate for a date range
